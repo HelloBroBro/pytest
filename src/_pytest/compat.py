@@ -1,3 +1,4 @@
+# mypy: allow-untyped-defs
 """Python version compatibility code."""
 from __future__ import annotations
 
@@ -5,11 +6,11 @@ import dataclasses
 import enum
 import functools
 import inspect
-import os
-import sys
 from inspect import Parameter
 from inspect import signature
+import os
 from pathlib import Path
+import sys
 from typing import Any
 from typing import Callable
 from typing import Final
@@ -26,7 +27,7 @@ _S = TypeVar("_S")
 # https://www.python.org/dev/peps/pep-0484/#support-for-singleton-types-in-unions
 class NotSetType(enum.Enum):
     token = 0
-NOTSET: Final = NotSetType.token  # noqa: E305
+NOTSET: Final = NotSetType.token
 # fmt: on
 
 
@@ -243,9 +244,7 @@ def get_real_func(obj):
         from _pytest._io.saferepr import saferepr
 
         raise ValueError(
-            ("could not find real function of {start}\nstopped at {current}").format(
-                start=saferepr(start_obj), current=saferepr(obj)
-            )
+            f"could not find real function of {saferepr(start_obj)}\nstopped at {saferepr(obj)}"
         )
     if isinstance(obj, functools.partial):
         obj = obj.func

@@ -1,3 +1,4 @@
+# mypy: allow-untyped-defs
 """Hook specifications for pytest plugins which are invoked by pytest itself
 and by builtin plugins."""
 from pathlib import Path
@@ -13,17 +14,18 @@ from typing import Union
 
 from pluggy import HookspecMarker
 
+
 if TYPE_CHECKING:
     import pdb
-    import warnings
     from typing import Literal
+    import warnings
 
-    from _pytest._code.code import ExceptionRepr
     from _pytest._code.code import ExceptionInfo
+    from _pytest._code.code import ExceptionRepr
+    from _pytest.config import _PluggyPlugin
     from _pytest.config import Config
     from _pytest.config import ExitCode
     from _pytest.config import PytestPluginManager
-    from _pytest.config import _PluggyPlugin
     from _pytest.config.argparsing import Parser
     from _pytest.fixtures import FixtureDef
     from _pytest.fixtures import SubRequest

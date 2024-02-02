@@ -1,13 +1,13 @@
 """Core implementation of the testing process: init, session, runtest loop."""
+
 import argparse
 import dataclasses
 import fnmatch
 import functools
 import importlib
 import os
-import sys
-import warnings
 from pathlib import Path
+import sys
 from typing import AbstractSet
 from typing import Callable
 from typing import Dict
@@ -22,11 +22,12 @@ from typing import overload
 from typing import Sequence
 from typing import Tuple
 from typing import Union
+import warnings
 
 import pluggy
 
-import _pytest._code
 from _pytest import nodes
+import _pytest._code
 from _pytest.config import Config
 from _pytest.config import directory_arg
 from _pytest.config import ExitCode
@@ -725,12 +726,12 @@ class Session(nodes.Collector):
         ...
 
     @overload
-    def perform_collect(  # noqa: F811
+    def perform_collect(
         self, args: Optional[Sequence[str]] = ..., genitems: bool = ...
     ) -> Sequence[Union[nodes.Item, nodes.Collector]]:
         ...
 
-    def perform_collect(  # noqa: F811
+    def perform_collect(
         self, args: Optional[Sequence[str]] = None, genitems: bool = True
     ) -> Sequence[Union[nodes.Item, nodes.Collector]]:
         """Perform the collection phase for this session.

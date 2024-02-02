@@ -1,4 +1,5 @@
 """Helper functions for writing to terminals and files."""
+
 import os
 import shutil
 import sys
@@ -183,9 +184,7 @@ class TerminalWriter:
         """
         if indents and len(indents) != len(lines):
             raise ValueError(
-                "indents size ({}) should have same size as lines ({})".format(
-                    len(indents), len(lines)
-                )
+                f"indents size ({len(indents)}) should have same size as lines ({len(lines)})"
             )
         if not indents:
             indents = [""] * len(lines)

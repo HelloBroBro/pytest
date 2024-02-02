@@ -11,13 +11,13 @@ from typing import TypedDict
 
 import packaging.version
 import platformdirs
-import tabulate
-import wcwidth
 from requests_cache import CachedResponse
 from requests_cache import CachedSession
 from requests_cache import OriginalResponse
 from requests_cache import SQLiteCache
+import tabulate
 from tqdm import tqdm
+import wcwidth
 
 
 FILE_HEAD = r"""
@@ -86,7 +86,6 @@ def project_response_with_refresh(
 
     force refresh in case of last serial mismatch
     """
-
     response = session.get(f"https://pypi.org/pypi/{name}/json")
     if int(response.headers.get("X-PyPI-Last-Serial", -1)) != last_serial:
         response = session.get(f"https://pypi.org/pypi/{name}/json", refresh=True)
@@ -185,7 +184,6 @@ def iter_plugins() -> Iterator[PluginInfo]:
 
 def plugin_definitions(plugins: Iterable[PluginInfo]) -> Iterator[str]:
     """Return RST for the plugin list that fits better on a vertical page."""
-
     for plugin in plugins:
         yield dedent(
             f"""
