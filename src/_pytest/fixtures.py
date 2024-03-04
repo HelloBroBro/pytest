@@ -7,6 +7,7 @@ import functools
 import inspect
 import os
 from pathlib import Path
+import sys
 from typing import AbstractSet
 from typing import Any
 from typing import Callable
@@ -65,6 +66,10 @@ from _pytest.pathlib import bestrelpath
 from _pytest.scope import _ScopeName
 from _pytest.scope import HIGH_SCOPES
 from _pytest.scope import Scope
+
+
+if sys.version_info[:2] < (3, 11):
+    from exceptiongroup import BaseExceptionGroup
 
 
 if TYPE_CHECKING:
@@ -343,7 +348,6 @@ class FixtureRequest(abc.ABC):
         pyfuncitem: "Function",
         fixturename: Optional[str],
         arg2fixturedefs: Dict[str, Sequence["FixtureDef[Any]"]],
-        arg2index: Dict[str, int],
         fixture_defs: Dict[str, "FixtureDef[Any]"],
         *,
         _ispytest: bool = False,
@@ -357,16 +361,6 @@ class FixtureRequest(abc.ABC):
         # collection. Dynamically requested fixtures (using
         # `request.getfixturevalue("foo")`) are added dynamically.
         self._arg2fixturedefs: Final = arg2fixturedefs
-        # A fixture may override another fixture with the same name, e.g. a fixture
-        # in a module can override a fixture in a conftest, a fixture in a class can
-        # override a fixture in the module, and so on.
-        # An overriding fixture can request its own name; in this case it gets
-        # the value of the fixture it overrides, one level up.
-        # The _arg2index state keeps the current depth in the overriding chain.
-        # The fixturedefs list in _arg2fixturedefs for a given name is ordered from
-        # furthest to closest, so we use negative indexing -1, -2, ... to go from
-        # last to first.
-        self._arg2index: Final = arg2index
         # The evaluated argnames so far, mapping to the FixtureDef they resolved
         # to.
         self._fixture_defs: Final = fixture_defs
@@ -422,11 +416,24 @@ class FixtureRequest(abc.ABC):
         # The are no fixtures with this name applicable for the function.
         if not fixturedefs:
             raise FixtureLookupError(argname, self)
-        index = self._arg2index.get(argname, 0) - 1
-        # The fixture requested its own name, but no remaining to override.
+
+        # A fixture may override another fixture with the same name, e.g. a
+        # fixture in a module can override a fixture in a conftest, a fixture in
+        # a class can override a fixture in the module, and so on.
+        # An overriding fixture can request its own name (possibly indirectly);
+        # in this case it gets the value of the fixture it overrides, one level
+        # up.
+        # Check how many `argname`s deep we are, and take the next one.
+        # `fixturedefs` is sorted from furthest to closest, so use negative
+        # indexing to go in reverse.
+        index = -1
+        for request in self._iter_chain():
+            if request.fixturename == argname:
+                index -= 1
+        # If already consumed all of the available levels, fail.
         if -index > len(fixturedefs):
             raise FixtureLookupError(argname, self)
-        self._arg2index[argname] = index
+
         return fixturedefs[index]
 
     @property
@@ -538,6 +545,16 @@ class FixtureRequest(abc.ABC):
         )
         return fixturedef.cached_result[0]
 
+    def _iter_chain(self) -> Iterator["SubRequest"]:
+        """Yield all SubRequests in the chain, from self up.
+
+        Note: does *not* yield the TopRequest.
+        """
+        current = self
+        while isinstance(current, SubRequest):
+            yield current
+            current = current._parent_request
+
     def _get_active_fixturedef(
         self, argname: str
     ) -> Union["FixtureDef[object]", PseudoFixtureDef[object]]:
@@ -555,11 +572,7 @@ class FixtureRequest(abc.ABC):
         return fixturedef
 
     def _get_fixturestack(self) -> List["FixtureDef[Any]"]:
-        current = self
-        values: List[FixtureDef[Any]] = []
-        while isinstance(current, SubRequest):
-            values.append(current._fixturedef)  # type: ignore[has-type]
-            current = current._parent_request
+        values = [request._fixturedef for request in self._iter_chain()]
         values.reverse()
         return values
 
@@ -652,7 +665,6 @@ class TopRequest(FixtureRequest):
             fixturename=None,
             pyfuncitem=pyfuncitem,
             arg2fixturedefs=pyfuncitem._fixtureinfo.name2fixturedefs.copy(),
-            arg2index={},
             fixture_defs={},
             _ispytest=_ispytest,
         )
@@ -698,12 +710,11 @@ class SubRequest(FixtureRequest):
             fixturename=fixturedef.argname,
             fixture_defs=request._fixture_defs,
             arg2fixturedefs=request._arg2fixturedefs,
-            arg2index=request._arg2index,
             _ispytest=_ispytest,
         )
         self._parent_request: Final[FixtureRequest] = request
         self._scope_field: Final = scope
-        self._fixturedef: Final = fixturedef
+        self._fixturedef: Final[FixtureDef[object]] = fixturedef
         if param is not NOTSET:
             self.param = param
         self.param_index: Final = param_index
@@ -1017,27 +1028,25 @@ class FixtureDef(Generic[FixtureValue]):
         self._finalizers.append(finalizer)
 
     def finish(self, request: SubRequest) -> None:
-        exc = None
-        try:
-            while self._finalizers:
-                try:
-                    func = self._finalizers.pop()
-                    func()
-                except BaseException as e:
-                    # XXX Only first exception will be seen by user,
-                    #     ideally all should be reported.
-                    if exc is None:
-                        exc = e
-            if exc:
-                raise exc
-        finally:
-            ihook = request.node.ihook
-            ihook.pytest_fixture_post_finalizer(fixturedef=self, request=request)
-            # Even if finalization fails, we invalidate the cached fixture
-            # value and remove all finalizers because they may be bound methods
-            # which will keep instances alive.
-            self.cached_result = None
-            self._finalizers.clear()
+        exceptions: List[BaseException] = []
+        while self._finalizers:
+            fin = self._finalizers.pop()
+            try:
+                fin()
+            except BaseException as e:
+                exceptions.append(e)
+        node = request.node
+        node.ihook.pytest_fixture_post_finalizer(fixturedef=self, request=request)
+        # Even if finalization fails, we invalidate the cached fixture
+        # value and remove all finalizers because they may be bound methods
+        # which will keep instances alive.
+        self.cached_result = None
+        self._finalizers.clear()
+        if len(exceptions) == 1:
+            raise exceptions[0]
+        elif len(exceptions) > 1:
+            msg = f'errors while tearing down fixture "{self.argname}" of {node}'
+            raise BaseExceptionGroup(msg, exceptions[::-1])
 
     def execute(self, request: SubRequest) -> FixtureValue:
         # Get required arguments and register our own finish()
